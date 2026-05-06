@@ -436,24 +436,61 @@ function deveIgnorarLinhaNoFechamentoFinanceiro(erp) {
   return isMesFinanceiroFechado2026(dataFaturamentoOriginal);
 }
 
+function formatObraExibicaoFromDigits(digits) {
+  const clean = normalizeDigits(digits);
+  if (clean.length >= 5) {
+    return `${clean.slice(0, 2)}.${clean.slice(2, 5)}`;
+  }
+  return clean;
+}
+
+function validarObraPermitidaPorDigits(digits) {
+  const clean = normalizeDigits(digits);
+  if (!clean || clean.length < 5) return null;
+
+  const obraKey = clean.slice(0, 5);
+  if (obraKey.startsWith('26') || OBRAS_2025_AUTORIZADAS.has(obraKey)) {
+    return {
+      obraExibicao: formatObraExibicaoFromDigits(obraKey),
+      obraKey
+    };
+  }
+
+  return null;
+}
+
 function extractObraPermitida(value) {
   const txt = String(value || '').trim();
   if (!txt) return null;
 
-  const matches = txt.match(/\d{2}[.,-]?\d{3,}/g);
-  if (!matches) return null;
+  const candidatos = [];
 
-  for (const match of matches) {
-    const digits = normalizeDigits(match);
-    if (digits.startsWith('26')) {
-      return { obraExibicao: match, obraKey: digits };
-    }
-    if (OBRAS_2025_AUTORIZADAS.has(digits)) {
-      return { obraExibicao: match, obraKey: digits };
-    }
+  function addCandidato(raw) {
+    const info = validarObraPermitidaPorDigits(raw);
+    if (info) candidatos.push(info);
   }
 
-  return null;
+  let match;
+
+  // Formatos principais: 26.046, 26,046, 26-046, OBRA26,046, OBRA 26.046.
+  const padraoComSeparador = /(?:OBRA\s*)?(\d{2})\s*[.,-]\s*(\d{2,3})\b/gi;
+  while ((match = padraoComSeparador.exec(txt)) !== null) {
+    addCandidato(`${match[1]}${String(match[2] || '').padStart(3, '0')}`);
+  }
+
+  // Formato com espaço: OBRA 26 046.
+  const padraoComEspaco = /(?:OBRA\s+)(\d{2})\s+(\d{2,3})\b/gi;
+  while ((match = padraoComEspaco.exec(txt)) !== null) {
+    addCandidato(`${match[1]}${String(match[2] || '').padStart(3, '0')}`);
+  }
+
+  // Formato colado: 26046 ou OBRA26046.
+  const padraoCincoDigitos = /(?:OBRA\s*)?(\d{5})\b/gi;
+  while ((match = padraoCincoDigitos.exec(txt)) !== null) {
+    addCandidato(match[1]);
+  }
+
+  return candidatos[0] || null;
 }
 
 
@@ -572,18 +609,6 @@ function grupoPossuiPedidosDuplicados(itens) {
   return pedidos.size > 1;
 }
 
-function removerPedidosCanceladosApenasEmDuplicidades(itens) {
-  const lista = Array.isArray(itens) ? itens : [];
-  if (lista.length <= 1) return lista;
-
-  const itensCancelados = lista.filter(item => isLinhaCanceladaOuFrustrada(item && item.erp));
-  const itensNaoCancelados = lista.filter(item => !isLinhaCanceladaOuFrustrada(item && item.erp));
-
-  if (!itensCancelados.length || !itensNaoCancelados.length) return lista;
-
-  return itensNaoCancelados;
-}
-
 function filtrarPorStatusPedidoPreferencial(itens) {
   const lista = Array.isArray(itens) ? itens : [];
   if (!lista.length) return [];
@@ -604,32 +629,58 @@ function filtrarPorStatusPedidoPreferencial(itens) {
   return lista;
 }
 
-function selecionarLinhasParaConsolidacao(grupo) {
-  const itens = Array.isArray(grupo && grupo.itens) ? grupo.itens : [];
-  if (!itens.length) return [];
+function resolverDuplicidadeGrupoObra(itens) {
+  const lista = Array.isArray(itens) ? itens.slice() : [];
+  if (!lista.length) return [];
 
-  const possuiDuplicidadeDePedidos = grupoPossuiPedidosDuplicados(itens);
-  let candidatos = itens.slice();
+  const possuiDuplicidadeDePedidos = grupoPossuiPedidosDuplicados(lista);
+  if (!possuiDuplicidadeDePedidos) {
+    return filtrarPorStatusPedidoPreferencial(lista);
+  }
 
-  if (possuiDuplicidadeDePedidos) {
-    const candidatosFirmados = candidatos.filter(item => isPedidoAtendidoERP(item && item.erp));
+  let candidatos = lista.slice();
 
-    if (candidatosFirmados.length) {
-      candidatos = candidatosFirmados;
+  // Regra central: em duplicidade, pedido cancelado só representa a obra
+  // quando todos os pedidos da mesma obra estão cancelados.
+  const candidatosNaoCancelados = candidatos.filter(item => !isLinhaCanceladaOuFrustrada(item && item.erp));
+  if (candidatosNaoCancelados.length) {
+    candidatos = candidatosNaoCancelados;
+  }
+
+  // Depois de remover cancelados inválidos, escolhe a situação real do ERP.
+  const candidatosCarteira = candidatos.filter(item => isPedidoAtendidoERP(item && item.erp));
+  if (candidatosCarteira.length) {
+    candidatos = candidatosCarteira;
+  } else {
+    const candidatosEntregues = candidatos.filter(item => {
+      const erp = item && item.erp;
+      const statusUp = String((item && item.statusProposta) || '').toUpperCase();
+      return isPedidoLiquidadoERP(erp) || statusUp === "ENTREGUE" || statusUp === "ENTREGUES" || statusUp === "CONCLUIDAS";
+    });
+
+    if (candidatosEntregues.length) {
+      candidatos = candidatosEntregues;
     } else {
-      const candidatosNaoCancelados = candidatos.filter(item => !isLinhaCanceladaOuFrustrada(item && item.erp));
-      if (candidatosNaoCancelados.length) {
-        candidatos = candidatosNaoCancelados;
+      const candidatosEnviados = candidatos.filter(item => isPedidoAguardandoAprovacaoERP(item && item.erp));
+      if (candidatosEnviados.length) {
+        candidatos = candidatosEnviados;
       }
     }
   }
 
-  candidatos = filtrarPorStatusPedidoPreferencial(candidatos);
+  // A preferência por PC só acontece depois da limpeza por status/situação.
+  // Assim, múltiplos pedidos PC válidos permanecem, e app duplicado só perde
+  // quando houver PC equivalente para representar a obra.
+  candidatos = selecionarItensPorOrigemPreferencial(candidatos);
 
-  if (possuiDuplicidadeDePedidos) {
-    candidatos = selecionarItensPorOrigemPreferencial(candidatos);
-  }
+  return candidatos.length ? candidatos : lista;
+}
 
+function selecionarLinhasParaConsolidacao(grupo) {
+  const itens = Array.isArray(grupo && grupo.itens) ? grupo.itens : [];
+  if (!itens.length) return [];
+
+  let candidatos = resolverDuplicidadeGrupoObra(itens);
   if (!candidatos.length) return [];
 
   const maiorPrioridade = candidatos.reduce((maior, item) => {
