@@ -1073,7 +1073,7 @@ function App() {
       <main className="dashboard-main flex-1 overflow-x-hidden p-4 md:p-8 pb-safe flex flex-col gap-8 w-full">
         <div className="dashboard-container w-full max-w-screen-2xl mx-auto">
 
-          <section className="management-surface management-grid hero-management rounded-3xl p-5 md:p-7 mb-6 md:mb-8 text-white shadow-xl overflow-hidden relative">
+          <section className="management-surface management-grid hero-management rounded-3xl p-5 md:p-7 mb-6 md:mb-8 text-slate-900 shadow-xl overflow-hidden relative">
             <div className="absolute -right-10 -top-10 w-48 h-48 rounded-full bg-white/10 blur-2xl"></div>
             <div className="absolute -left-12 bottom-0 w-52 h-52 rounded-full bg-brand-accent/10 blur-3xl"></div>
 
@@ -1133,7 +1133,7 @@ function App() {
                       className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap border transition-all ${
                         isActive
                           ? 'bg-white text-brand-900 border-white shadow-lg'
-                          : 'bg-white/10 text-white border-white/15 hover:bg-white/15 hover:text-white'
+                          : 'bg-white/70 text-slate-700 border-slate-200 hover:bg-white hover:text-brand-900'
                       }`}
                     >
                       {label}
