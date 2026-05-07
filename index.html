@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calendário Corporativo</title>
+
+  <!-- React / ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
+  <!-- Babel: mantém o projeto simples para GitHub Pages sem etapa de build -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Configuração do Tailwind antes de carregar a CDN -->
+  <script src="./assets/scripts/00-tailwind-config.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <link rel="stylesheet" href="./assets/css/style.css" />
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- Serviços e configurações globais -->
+  <script src="./assets/scripts/01-supabase-client.js"></script>
+  <script src="./assets/scripts/02-constants.js"></script>
+
+  <!-- Componentes JSX -->
+  <script type="text/babel" src="./assets/scripts/03-icons.jsx"></script>
+  <script type="text/babel" src="./assets/scripts/04-components.jsx"></script>
+  <script type="text/babel" src="./assets/scripts/app.jsx"></script>
+</body>
+</html>
