@@ -28,7 +28,7 @@ body {
 .management-surface {
   background:
     radial-gradient(circle at top left, rgba(0, 212, 255, 0.14), transparent 32rem),
-    linear-gradient(135deg, #0A122E 0%, #172A66 52%, #1E3A8A 100%);
+    linear-gradient(135deg, #0F1A42 0%, #1B347D 52%, #2450B8 100%);
 }
 
 .management-grid {
@@ -44,3 +44,17 @@ body {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+
+/* Ajuste cirúrgico de contraste para o painel de gestão */
+.management-surface {
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.22);
+}
+.management-surface .management-stat-card {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.management-surface .management-stat-label { color: rgba(255,255,255,0.86); }
+.management-surface .management-stat-help { color: rgba(255,255,255,0.88); }
+.management-surface .management-muted { color: rgba(255,255,255,0.92); }
+.management-surface .management-filter-label { color: rgba(255,255,255,0.9); }
