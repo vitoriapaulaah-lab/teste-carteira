@@ -1086,37 +1086,37 @@ function App() {
                 <h2 className="text-2xl md:text-4xl font-black leading-tight tracking-tight">
                   Painel diário de alinhamento entre setores
                 </h2>
-                <p className="mt-3 text-sm md:text-base text-white/80 font-medium leading-relaxed max-w-2xl">
+                <p className="mt-3 text-sm md:text-base management-muted font-medium leading-relaxed max-w-2xl">
                   Visualização pública para acompanhar informes, prazos, eventos e movimentos que impactam o fluxo dos projetos da empresa.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-2 gap-3 min-w-0 xl:min-w-[420px]">
-                <div className="bg-white/10 border border-white/15 rounded-2xl p-3 backdrop-blur-sm">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/60">Semana</p>
+                <div className="management-stat-card rounded-2xl p-3 backdrop-blur-sm">
+                  <p className="text-[10px] font-bold uppercase tracking-wider management-stat-label">Semana</p>
                   <p className="text-2xl font-black mt-1">{dashboardWeekEvents.length}</p>
-                  <p className="text-[11px] text-white/70 font-medium">lançamentos</p>
+                  <p className="text-[11px] management-stat-help font-medium">lançamentos</p>
                 </div>
-                <div className="bg-white/10 border border-white/15 rounded-2xl p-3 backdrop-blur-sm">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/60">Atenção</p>
+                <div className="management-stat-card rounded-2xl p-3 backdrop-blur-sm">
+                  <p className="text-[10px] font-bold uppercase tracking-wider management-stat-label">Atenção</p>
                   <p className="text-2xl font-black mt-1">{urgentDashboardEvents.length}</p>
-                  <p className="text-[11px] text-white/70 font-medium">urgentes</p>
+                  <p className="text-[11px] management-stat-help font-medium">urgentes</p>
                 </div>
-                <div className="bg-white/10 border border-white/15 rounded-2xl p-3 backdrop-blur-sm">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/60">Setores</p>
+                <div className="management-stat-card rounded-2xl p-3 backdrop-blur-sm">
+                  <p className="text-[10px] font-bold uppercase tracking-wider management-stat-label">Setores</p>
                   <p className="text-2xl font-black mt-1">{activeDashboardSectors}</p>
-                  <p className="text-[11px] text-white/70 font-medium">com avisos</p>
+                  <p className="text-[11px] management-stat-help font-medium">com avisos</p>
                 </div>
-                <div className="bg-white/10 border border-white/15 rounded-2xl p-3 backdrop-blur-sm">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/60">Filtro</p>
+                <div className="management-stat-card rounded-2xl p-3 backdrop-blur-sm">
+                  <p className="text-[10px] font-bold uppercase tracking-wider management-stat-label">Filtro</p>
                   <p className="text-sm font-black mt-2 truncate">{sectorFilter === 'todos' ? 'Todos' : sectorFilter}</p>
-                  <p className="text-[11px] text-white/70 font-medium">visão atual</p>
+                  <p className="text-[11px] management-stat-help font-medium">visão atual</p>
                 </div>
               </div>
             </div>
 
             <div className="relative z-10 mt-6 pt-5 border-t border-white/10">
-              <div className="flex items-center gap-2 mb-3 text-white/75">
+              <div className="flex items-center gap-2 mb-3 management-filter-label">
                 <Filter size={15} />
                 <span className="text-xs font-bold uppercase tracking-wider">Filtro operacional por setor</span>
               </div>
@@ -1133,7 +1133,7 @@ function App() {
                       className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap border transition-all ${
                         isActive
                           ? 'bg-white text-brand-900 border-white shadow-lg'
-                          : 'bg-white/5 text-white/75 border-white/10 hover:bg-white/10 hover:text-white'
+                          : 'bg-white/10 text-white border-white/15 hover:bg-white/15 hover:text-white'
                       }`}
                     >
                       {label}
