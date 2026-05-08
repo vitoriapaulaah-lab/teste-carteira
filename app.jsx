@@ -196,6 +196,109 @@
     };
 
 
+    const CALENDER_SCHEMA = 'calender';
+
+    const DB_TO_UI_TASK_STATUS = {
+      draft: 'AVAILABLE',
+      blocked: 'BLOCKED',
+      available: 'AVAILABLE',
+      in_progress: 'IN_PROGRESS',
+      submitted: 'SUBMITTED',
+      rejected: 'REJECTED',
+      approved: 'APPROVED',
+      done: 'DONE',
+      cancelled: 'CANCELLED'
+    };
+
+    const UI_TO_DB_TASK_STATUS = {
+      BLOCKED: 'blocked',
+      AVAILABLE: 'available',
+      IN_PROGRESS: 'in_progress',
+      SUBMITTED: 'submitted',
+      REJECTED: 'rejected',
+      APPROVED: 'approved',
+      DONE: 'done',
+      CANCELLED: 'cancelled'
+    };
+
+    const DB_TO_UI_PRIORITY = {
+      low: 'Baixa',
+      medium: 'Média',
+      high: 'Alta',
+      critical: 'Crítica'
+    };
+
+    const UI_TO_DB_PRIORITY = {
+      Baixa: 'low',
+      Média: 'medium',
+      Alta: 'high',
+      Crítica: 'critical'
+    };
+
+    const DB_TO_UI_PROJECT_STATUS = {
+      planning: 'Planejamento',
+      active: 'Em andamento',
+      waiting_client: 'Aguardando cliente',
+      revision: 'Revisão',
+      approved: 'Aprovado',
+      paused: 'Pausado',
+      completed: 'Concluído',
+      cancelled: 'Cancelado'
+    };
+
+    const UI_TO_DB_PROJECT_STATUS = {
+      Planejamento: 'planning',
+      'Em andamento': 'active',
+      'Aguardando cliente': 'waiting_client',
+      Revisão: 'revision',
+      Aprovado: 'approved',
+      Pausado: 'paused',
+      Concluído: 'completed',
+      Cancelado: 'cancelled'
+    };
+
+    const mapProjectFromDb = (row) => ({
+      id: row.id,
+      clientName: row.client_name || 'Cliente não informado',
+      name: row.name || 'Projeto sem nome',
+      description: row.description || '',
+      priority: DB_TO_UI_PRIORITY[row.priority] || row.priority || 'Média',
+      status: DB_TO_UI_PROJECT_STATUS[row.status] || row.status || 'Planejamento',
+      ownerSector: row.owner_sector || 'Geral',
+      deadline: row.deadline || '',
+      createdAt: row.created_at || '',
+      source: 'supabase'
+    });
+
+    const mapTaskFromDb = (row, stagesById = {}, dependenciesByTaskId = {}) => {
+      const stage = row.stage_id ? stagesById[row.stage_id] : null;
+
+      return {
+        id: row.id,
+        projectId: row.project_id,
+        stage: stage?.name || row.assigned_sector || 'Geral',
+        title: row.title || 'Atividade sem título',
+        description: row.description || '',
+        assignedSector: row.assigned_sector || stage?.sector || 'Geral',
+        assignedTo: row.assigned_to || row.assigned_sector || 'Equipe',
+        dueDate: row.due_date || '',
+        priority: DB_TO_UI_PRIORITY[row.priority] || row.priority || 'Média',
+        status: DB_TO_UI_TASK_STATUS[row.status] || 'AVAILABLE',
+        dependsOn: dependenciesByTaskId[row.id] || [],
+        evidence: '',
+        createdBy: row.created_by || 'Admin',
+        submittedAt: row.completed_by_user_at || null,
+        submittedBy: row.completed_by_user_id || null,
+        approvedAt: row.approved_at || null,
+        approvedBy: row.approved_by || null,
+        rejectedAt: row.rejected_at || null,
+        rejectedBy: row.rejected_by || null,
+        rejectionReason: row.rejection_reason || '',
+        source: 'supabase'
+      };
+    };
+
+
     const INITIAL_FORM_DATA = {
       type: 'Evento',
       department: 'RH',
@@ -544,11 +647,16 @@
       const [hrEvents, setHrEvents] = useState([]);
       const [dbHolidays, setDbHolidays] = useState([]);
 
-      // Estados táticos locais da Etapa 1
-      // Estes dados permitem testar páginas, status e cascata antes da criação das tabelas definitivas no Supabase.
+      // Estados táticos
+      // A partir desta etapa, o módulo tático tenta usar o schema calender no Supabase.
+      // Se o schema não estiver exposto na API ou se o usuário não estiver autenticado, mantém o modo local seguro.
       const [tacticalProjects, setTacticalProjects] = useState(() => loadLocalState('agendaTaticaProjectsV1', DEMO_TACTICAL_PROJECTS));
       const [tacticalTasks, setTacticalTasks] = useState(() => loadLocalState('agendaTaticaTasksV1', DEMO_TACTICAL_TASKS));
-      
+      const [tacticalAccess, setTacticalAccess] = useState(null);
+      const [tacticalDataSource, setTacticalDataSource] = useState('local');
+      const [tacticalLoading, setTacticalLoading] = useState(false);
+      const [tacticalError, setTacticalError] = useState('');
+
       // Estados de Autenticação
       const [user, setUser] = useState(null);
       const [profile, setProfile] = useState(null);
@@ -701,6 +809,120 @@
         return data;
       };
 
+      const calenderTable = (tableName) => {
+        const scopedClient = typeof supabase.schema === 'function' ? supabase.schema(CALENDER_SCHEMA) : supabase;
+        return scopedClient.from(tableName);
+      };
+
+      const fetchTacticalAccess = async (currentUser, currentProfile = null) => {
+        if (!currentUser?.id) {
+          setTacticalAccess(null);
+          return null;
+        }
+
+        try {
+          const { data, error } = await calenderTable('user_access')
+            .select('*')
+            .eq('user_id', currentUser.id)
+            .maybeSingle();
+
+          if (error && error.code !== 'PGRST116') {
+            throw error;
+          }
+
+          if (data) {
+            setTacticalAccess(data);
+            return data;
+          }
+
+          const accessPayload = {
+            user_id: currentUser.id,
+            full_name: currentProfile?.full_name || currentUser.user_metadata?.full_name || currentUser.email || 'Usuário',
+            email: currentUser.email || null,
+            department: currentProfile?.department || 'Geral',
+            role: 'user',
+            is_admin: false,
+            is_active: true
+          };
+
+          const { data: insertedAccess, error: insertError } = await calenderTable('user_access')
+            .insert([accessPayload])
+            .select('*')
+            .maybeSingle();
+
+          if (insertError) {
+            throw insertError;
+          }
+
+          setTacticalAccess(insertedAccess);
+          return insertedAccess;
+        } catch (error) {
+          console.warn('Não foi possível carregar/criar acesso tático no schema calender:', error);
+          setTacticalAccess(null);
+          return null;
+        }
+      };
+
+      const fetchTacticalData = async ({ silent = true } = {}) => {
+        if (!user?.id) {
+          setTacticalDataSource('local');
+          return;
+        }
+
+        setTacticalLoading(true);
+
+        try {
+          const [
+            projectsResponse,
+            stagesResponse,
+            tasksResponse,
+            dependenciesResponse
+          ] = await Promise.all([
+            calenderTable('projects').select('*').order('created_at', { ascending: false }),
+            calenderTable('project_stages').select('*').order('order_index', { ascending: true }),
+            calenderTable('tasks').select('*').order('created_at', { ascending: true }),
+            calenderTable('task_dependencies').select('*')
+          ]);
+
+          if (projectsResponse.error) throw projectsResponse.error;
+          if (stagesResponse.error) throw stagesResponse.error;
+          if (tasksResponse.error) throw tasksResponse.error;
+          if (dependenciesResponse.error) throw dependenciesResponse.error;
+
+          const stagesById = {};
+          (stagesResponse.data || []).forEach(stage => {
+            stagesById[stage.id] = stage;
+          });
+
+          const dependenciesByTaskId = {};
+          (dependenciesResponse.data || []).forEach(dependency => {
+            if (!dependenciesByTaskId[dependency.task_id]) {
+              dependenciesByTaskId[dependency.task_id] = [];
+            }
+            dependenciesByTaskId[dependency.task_id].push(dependency.depends_on_task_id);
+          });
+
+          setTacticalProjects((projectsResponse.data || []).map(mapProjectFromDb));
+          setTacticalTasks((tasksResponse.data || []).map(task => mapTaskFromDb(task, stagesById, dependenciesByTaskId)));
+          setTacticalDataSource('supabase');
+          setTacticalError('');
+
+          if (!silent) {
+            showFeedbackDialog('success', 'Dados atualizados', 'Projetos, atividades e dependências foram carregados do schema calender.');
+          }
+        } catch (error) {
+          console.error('Erro ao carregar dados táticos do schema calender:', error);
+          setTacticalDataSource('local');
+          setTacticalError(error?.message || 'Não foi possível carregar o schema calender pela API do Supabase.');
+
+          if (!silent) {
+            showFeedbackDialog('error', 'Falha ao atualizar dados táticos', 'Não foi possível ler o schema calender. Confirme se ele está exposto em Project Settings > API > Exposed schemas.');
+          }
+        } finally {
+          setTacticalLoading(false);
+        }
+      };
+
       // --- BUSCA DE DADOS INICIAIS (SUPABASE) ---
       useEffect(() => {
         supabase.auth.getSession().then(({ data: { session } }) => {
@@ -730,19 +952,33 @@
             const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
             if (error) {
               console.error('Erro ao buscar perfil do usuário:', error);
+              await fetchTacticalAccess(user, null);
+              await fetchTacticalData();
               return;
             }
+
+            let resolvedProfile = data;
 
             if (data) {
               setProfile(data);
             } else {
               const createdProfile = await ensureUserProfile(user);
-              if (createdProfile) setProfile(createdProfile);
+              if (createdProfile) {
+                resolvedProfile = createdProfile;
+                setProfile(createdProfile);
+              }
             }
+
+            await fetchTacticalAccess(user, resolvedProfile);
+            await fetchTacticalData();
           };
+
           fetchProfile();
         } else {
           setProfile(null);
+          setTacticalAccess(null);
+          setTacticalDataSource('local');
+          setTacticalError('');
         }
       }, [user]);
 
@@ -753,12 +989,16 @@
       }, [isMonthModalOpen]);
 
       useEffect(() => {
-        saveLocalState('agendaTaticaProjectsV1', tacticalProjects);
-      }, [tacticalProjects]);
+        if (tacticalDataSource === 'local') {
+          saveLocalState('agendaTaticaProjectsV1', tacticalProjects);
+        }
+      }, [tacticalProjects, tacticalDataSource]);
 
       useEffect(() => {
-        saveLocalState('agendaTaticaTasksV1', tacticalTasks);
-      }, [tacticalTasks]);
+        if (tacticalDataSource === 'local') {
+          saveLocalState('agendaTaticaTasksV1', tacticalTasks);
+        }
+      }, [tacticalTasks, tacticalDataSource]);
 
       const fetchData = async () => {
         const { data: eventsData, error: eventsError } = await supabase.from('events').select('*');
@@ -1235,7 +1475,7 @@
       }, [adminSelectedDate, hrEvents]);
 
       // --- LÓGICA TÁTICA DA ETAPA 1 (local, segura e sem quebrar Supabase atual) ---
-      const isAdminUser = !!(user && profile?.is_admin);
+      const isAdminUser = !!(user && (profile?.is_admin || tacticalAccess?.is_admin));
       const regularEvents = useMemo(() => hrEvents.filter(e => e.type !== 'Faturamento'), [hrEvents]);
       const noticeEvents = useMemo(() => hrEvents.filter(e => e.type === 'Informe'), [hrEvents]);
 
@@ -1302,7 +1542,35 @@
         });
       };
 
-      const handleTaskSubmitForApproval = (task) => {
+      const handleTacticalRefresh = async () => {
+        if (!user) {
+          showFeedbackDialog('info', 'Login necessário', 'Entre com sua conta para carregar projetos e atividades do schema calender.');
+          setCurrentView('login');
+          return;
+        }
+
+        await fetchTacticalAccess(user, profile);
+        await fetchTacticalData({ silent: false });
+      };
+
+      const safeInsertApprovalLog = async ({ task, action, previousStatus, newStatus, comment }) => {
+        try {
+          const { error } = await calenderTable('task_approval_logs').insert([{
+            task_id: task.id,
+            admin_id: user?.id || null,
+            action,
+            comment,
+            previous_status: previousStatus ? UI_TO_DB_TASK_STATUS[previousStatus] : null,
+            new_status: newStatus ? UI_TO_DB_TASK_STATUS[newStatus] : null
+          }]);
+
+          if (error) throw error;
+        } catch (error) {
+          console.warn('Log de aprovação não registrado. A ação principal foi mantida.', error);
+        }
+      };
+
+      const handleTaskSubmitForApproval = async (task) => {
         if (!user) {
           showFeedbackDialog('info', 'Login necessário', 'Entre com sua conta para informar execução de atividades.');
           setCurrentView('login');
@@ -1317,6 +1585,54 @@
 
         if (['SUBMITTED', 'APPROVED', 'DONE'].includes(effectiveStatus)) {
           showFeedbackDialog('info', 'Sem ação necessária', 'Esta atividade já foi enviada ou aprovada.');
+          return;
+        }
+
+        if (tacticalDataSource === 'supabase') {
+          setIsSubmitting(true);
+
+          try {
+            const submittedAt = new Date().toISOString();
+
+            const { error: submissionError } = await calenderTable('task_submissions').insert([{
+              task_id: task.id,
+              submitted_by: user.id,
+              comment: 'Execução informada pelo usuário para validação administrativa.',
+              status: 'submitted'
+            }]);
+
+            if (submissionError) throw submissionError;
+
+            const { error: taskUpdateError } = await calenderTable('tasks')
+              .update({
+                status: 'submitted',
+                completed_by_user_at: submittedAt,
+                completed_by_user_id: user.id,
+                rejection_reason: null,
+                rejected_at: null,
+                rejected_by: null
+              })
+              .eq('id', task.id);
+
+            if (taskUpdateError) throw taskUpdateError;
+
+            setTacticalTasks(prev => prev.map(item => item.id === task.id ? {
+              ...item,
+              status: 'SUBMITTED',
+              submittedAt,
+              submittedBy: profile?.full_name || user?.email || 'Usuário',
+              evidence: item.evidence || 'Execução informada pelo usuário para validação administrativa.',
+              rejectionReason: ''
+            } : item));
+
+            showFeedbackDialog('success', 'Atividade enviada', 'A execução foi registrada no schema calender e enviada para análise do admin.');
+          } catch (error) {
+            console.error('Erro ao enviar atividade para aprovação:', error);
+            showFeedbackDialog('error', 'Falha ao enviar atividade', 'Não foi possível registrar a execução. Verifique se o usuário pertence ao setor da tarefa e se o schema calender está exposto na API.');
+          } finally {
+            setIsSubmitting(false);
+          }
+
           return;
         }
 
@@ -1343,6 +1659,71 @@
           confirmText: 'Aprovar e liberar cascata',
           cancelText: 'Cancelar',
           onConfirm: async () => {
+            if (tacticalDataSource === 'supabase') {
+              setIsSubmitting(true);
+
+              try {
+                const previousStatus = getTaskEffectiveStatus(task);
+                const approvedAt = new Date().toISOString();
+
+                const { error: approveError } = await calenderTable('tasks')
+                  .update({
+                    status: 'approved',
+                    approved_at: approvedAt,
+                    approved_by: user.id,
+                    rejected_at: null,
+                    rejected_by: null,
+                    rejection_reason: null
+                  })
+                  .eq('id', task.id);
+
+                if (approveError) throw approveError;
+
+                const approvedList = tacticalTasks.map(item => item.id === task.id ? {
+                  ...item,
+                  status: 'APPROVED',
+                  approvedAt,
+                  approvedBy: profile?.full_name || user?.email || 'Admin',
+                  rejectionReason: ''
+                } : item);
+
+                const releasedList = releaseDependentTasks(task.id, approvedList);
+                const tasksToRelease = releasedList
+                  .filter(item => {
+                    const previousItem = approvedList.find(prevItem => prevItem.id === item.id);
+                    return previousItem?.status === 'BLOCKED' && item.status === 'AVAILABLE';
+                  })
+                  .map(item => item.id);
+
+                if (tasksToRelease.length > 0) {
+                  const { error: releaseError } = await calenderTable('tasks')
+                    .update({ status: 'available' })
+                    .in('id', tasksToRelease);
+
+                  if (releaseError) throw releaseError;
+                }
+
+                await safeInsertApprovalLog({
+                  task,
+                  action: 'approved',
+                  previousStatus,
+                  newStatus: 'APPROVED',
+                  comment: 'Atividade aprovada pelo admin e cascata recalculada.'
+                });
+
+                setTacticalTasks(releasedList);
+                showFeedbackDialog('success', 'Atividade aprovada', 'A tarefa foi validada no schema calender e as dependências foram recalculadas.');
+                fetchTacticalData({ silent: true });
+              } catch (error) {
+                console.error('Erro ao aprovar atividade:', error);
+                showFeedbackDialog('error', 'Falha ao aprovar atividade', 'Não foi possível aprovar a tarefa. Confirme se seu usuário está como admin em calender.user_access.');
+              } finally {
+                setIsSubmitting(false);
+              }
+
+              return;
+            }
+
             setTacticalTasks(prev => {
               const approvedList = prev.map(item => item.id === task.id ? {
                 ...item,
@@ -1371,6 +1752,53 @@
           confirmText: 'Reprovar',
           cancelText: 'Cancelar',
           onConfirm: async () => {
+            if (tacticalDataSource === 'supabase') {
+              setIsSubmitting(true);
+
+              try {
+                const previousStatus = getTaskEffectiveStatus(task);
+                const rejectedAt = new Date().toISOString();
+                const rejectionReason = 'Necessita ajuste ou evidência adicional antes da aprovação final.';
+
+                const { error: rejectError } = await calenderTable('tasks')
+                  .update({
+                    status: 'rejected',
+                    rejected_at: rejectedAt,
+                    rejected_by: user.id,
+                    rejection_reason: rejectionReason
+                  })
+                  .eq('id', task.id);
+
+                if (rejectError) throw rejectError;
+
+                await safeInsertApprovalLog({
+                  task,
+                  action: 'rejected',
+                  previousStatus,
+                  newStatus: 'REJECTED',
+                  comment: rejectionReason
+                });
+
+                setTacticalTasks(prev => prev.map(item => item.id === task.id ? {
+                  ...item,
+                  status: 'REJECTED',
+                  rejectedAt,
+                  rejectedBy: profile?.full_name || user?.email || 'Admin',
+                  rejectionReason
+                } : item));
+
+                showFeedbackDialog('info', 'Atividade reprovada', 'A atividade voltou para ajuste no schema calender e não liberou a próxima etapa.');
+                fetchTacticalData({ silent: true });
+              } catch (error) {
+                console.error('Erro ao reprovar atividade:', error);
+                showFeedbackDialog('error', 'Falha ao reprovar atividade', 'Não foi possível reprovar a tarefa. Confirme se seu usuário está como admin em calender.user_access.');
+              } finally {
+                setIsSubmitting(false);
+              }
+
+              return;
+            }
+
             setTacticalTasks(prev => prev.map(item => item.id === task.id ? {
               ...item,
               status: 'REJECTED',
@@ -1384,10 +1812,144 @@
         });
       };
 
-      const resetTacticalDemo = () => {
+      const createTacticalPilotInSupabase = () => {
+        if (!user) {
+          showFeedbackDialog('info', 'Login necessário', 'Entre com uma conta admin para criar o fluxo piloto no schema calender.');
+          setCurrentView('login');
+          return;
+        }
+
+        if (!isAdminUser) {
+          showFeedbackDialog('error', 'Acesso restrito', 'Somente administradores podem criar projetos e tarefas no schema calender.');
+          return;
+        }
+
         showConfirmDialog({
-          title: 'Restaurar fluxo tático demonstrativo?',
-          message: 'As atividades locais da Etapa 1 voltarão ao estado inicial. Os registros do calendário no Supabase não serão alterados.',
+          title: 'Criar fluxo piloto no Supabase?',
+          message: 'Serão criados projetos, etapas, tarefas e dependências reais no schema calender para validar a cascata com persistência.',
+          confirmText: 'Criar fluxo piloto',
+          cancelText: 'Cancelar',
+          onConfirm: async () => {
+            setIsSubmitting(true);
+
+            try {
+              const projectIdMap = {};
+
+              for (const demoProject of DEMO_TACTICAL_PROJECTS) {
+                const { data: insertedProject, error: projectError } = await calenderTable('projects')
+                  .insert([{
+                    client_name: demoProject.clientName,
+                    name: demoProject.name,
+                    description: demoProject.description,
+                    status: UI_TO_DB_PROJECT_STATUS[demoProject.status] || 'planning',
+                    priority: UI_TO_DB_PRIORITY[demoProject.priority] || 'medium',
+                    owner_sector: demoProject.ownerSector || 'Geral',
+                    deadline: demoProject.deadline || null,
+                    created_by: user.id
+                  }])
+                  .select('*')
+                  .single();
+
+                if (projectError) throw projectError;
+                projectIdMap[demoProject.id] = insertedProject.id;
+              }
+
+              const stageIdMap = {};
+              const stageOrderByProject = {};
+
+              for (const demoTask of DEMO_TACTICAL_TASKS) {
+                const projectId = projectIdMap[demoTask.projectId];
+                if (!projectId) continue;
+
+                const stageKey = `${demoTask.projectId}|${demoTask.stage}`;
+                if (stageIdMap[stageKey]) continue;
+
+                stageOrderByProject[demoTask.projectId] = (stageOrderByProject[demoTask.projectId] || 0) + 1;
+
+                const { data: insertedStage, error: stageError } = await calenderTable('project_stages')
+                  .insert([{
+                    project_id: projectId,
+                    name: demoTask.stage || 'Geral',
+                    sector: demoTask.assignedSector || 'Geral',
+                    order_index: stageOrderByProject[demoTask.projectId],
+                    status: demoTask.status === 'BLOCKED' ? 'blocked' : 'available',
+                    due_date: demoTask.dueDate || null,
+                    created_by: user.id
+                  }])
+                  .select('*')
+                  .single();
+
+                if (stageError) throw stageError;
+                stageIdMap[stageKey] = insertedStage.id;
+              }
+
+              const taskIdMap = {};
+
+              for (const demoTask of DEMO_TACTICAL_TASKS) {
+                const projectId = projectIdMap[demoTask.projectId];
+                if (!projectId) continue;
+
+                const stageKey = `${demoTask.projectId}|${demoTask.stage}`;
+
+                const { data: insertedTask, error: taskError } = await calenderTable('tasks')
+                  .insert([{
+                    project_id: projectId,
+                    stage_id: stageIdMap[stageKey] || null,
+                    title: demoTask.title,
+                    description: demoTask.description,
+                    assigned_sector: demoTask.assignedSector || 'Geral',
+                    created_by: user.id,
+                    status: UI_TO_DB_TASK_STATUS[demoTask.status] || 'blocked',
+                    priority: UI_TO_DB_PRIORITY[demoTask.priority] || 'medium',
+                    due_date: demoTask.dueDate || null
+                  }])
+                  .select('*')
+                  .single();
+
+                if (taskError) throw taskError;
+                taskIdMap[demoTask.id] = insertedTask.id;
+              }
+
+              const dependencyPayload = DEMO_TACTICAL_TASKS.flatMap(demoTask => {
+                const taskId = taskIdMap[demoTask.id];
+                if (!taskId) return [];
+
+                return (demoTask.dependsOn || [])
+                  .map(depId => taskIdMap[depId])
+                  .filter(Boolean)
+                  .map(depUuid => ({
+                    task_id: taskId,
+                    depends_on_task_id: depUuid,
+                    created_by: user.id
+                  }));
+              });
+
+              if (dependencyPayload.length > 0) {
+                const { error: dependencyError } = await calenderTable('task_dependencies').insert(dependencyPayload);
+                if (dependencyError) throw dependencyError;
+              }
+
+              await fetchTacticalData({ silent: true });
+              showFeedbackDialog('success', 'Fluxo piloto criado', 'Projetos, etapas, tarefas e dependências foram criados no schema calender.');
+            } catch (error) {
+              console.error('Erro ao criar fluxo piloto no schema calender:', error);
+              showFeedbackDialog('error', 'Falha ao criar fluxo piloto', 'Não foi possível inserir os dados. Confirme se o usuário está como admin em calender.user_access e se o schema calender está exposto na API.');
+            } finally {
+              setIsSubmitting(false);
+            }
+          }
+        });
+      };
+
+      const resetTacticalDemo = () => {
+        if (tacticalDataSource === 'supabase') {
+          handleTacticalRefresh();
+          return;
+        }
+
+        showConfirmDialog({
+          title: 'Restaurar fluxo tático local?',
+          message: 'As atividades locais voltarão ao estado inicial. Os registros do calendário no Supabase não serão alterados.',
           confirmText: 'Restaurar',
           cancelText: 'Cancelar',
           onConfirm: async () => {
@@ -1681,6 +2243,43 @@
         </div>
       );
 
+      const TacticalSourceCard = () => (
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 md:p-5 shadow-sm mb-6">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className={`w-11 h-11 rounded-xl border flex items-center justify-center flex-shrink-0 ${tacticalDataSource === 'supabase' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                {tacticalDataSource === 'supabase' ? <ShieldCheck size={22} /> : <Wrench size={22} />}
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-black text-brand-900">Camada tática</h3>
+                  <span className={`px-2.5 py-1 rounded-full border text-[10px] font-black uppercase tracking-wider ${tacticalDataSource === 'supabase' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                    {tacticalDataSource === 'supabase' ? 'Schema calender' : 'Modo local seguro'}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-500 font-medium mt-1">
+                  {tacticalDataSource === 'supabase'
+                    ? 'Projetos, tarefas e aprovações estão conectados ao Supabase.'
+                    : 'A tela continua funcional com dados locais até o login, permissão ou exposição do schema calender na API.'}
+                </p>
+                {tacticalError && <p className="text-xs text-red-600 font-bold mt-2">{tacticalError}</p>}
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button type="button" onClick={handleTacticalRefresh} disabled={tacticalLoading} className="px-4 py-2.5 rounded-xl bg-slate-50 text-slate-600 border border-slate-200 text-sm font-black hover:bg-slate-100 transition-colors disabled:opacity-60 disabled:cursor-wait">
+                {tacticalLoading ? 'Atualizando...' : 'Atualizar dados'}
+              </button>
+              {isAdminUser && (
+                <button type="button" onClick={createTacticalPilotInSupabase} disabled={isSubmitting} className="px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-black hover:bg-brand-700 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-wait">
+                  Criar fluxo piloto
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+
       const TaskCard = ({ task, adminMode = false }) => {
         const project = getProjectById(task.projectId);
         const status = getTaskEffectiveStatus(task);
@@ -1823,10 +2422,12 @@
               title="Minhas Atividades"
               description="Área diária para acompanhar tarefas liberadas, bloqueadas por cascata, atrasadas ou aguardando validação do admin."
               icon={CheckCircle}
-              actions={<button type="button" onClick={resetTacticalDemo} className="px-4 py-2.5 rounded-xl bg-slate-50 text-slate-600 border border-slate-200 text-sm font-black hover:bg-slate-100 transition-colors">Restaurar teste</button>}
+              actions={<button type="button" onClick={handleTacticalRefresh} disabled={tacticalLoading} className="px-4 py-2.5 rounded-xl bg-slate-50 text-slate-600 border border-slate-200 text-sm font-black hover:bg-slate-100 transition-colors disabled:opacity-60 disabled:cursor-wait">{tacticalLoading ? 'Atualizando...' : 'Atualizar dados'}</button>}
             />
 
             {!user && <div className="mb-6"><AccessRequiredCard /></div>}
+
+            <TacticalSourceCard />
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
               <StatCard title="Liberadas" value={tacticalStats.available} description="Podem ser executadas agora." icon={Unlock} tone="brand" />
@@ -1837,6 +2438,9 @@
 
             <div className="flex flex-col gap-4">
               {sortedTasks.map(task => <TaskCard key={task.id} task={task} />)}
+              {sortedTasks.length === 0 && (
+                <EmptyState icon={CheckCircle} title="Nenhuma atividade encontrada" description="Quando houver tarefas no schema calender, elas aparecerão aqui. O admin também pode criar um fluxo piloto para testar a cascata real." />
+              )}
             </div>
           </div>
         );
@@ -1851,11 +2455,17 @@
             actions={<button type="button" onClick={() => setCurrentView('atividades')} className="px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-black hover:bg-brand-700 transition-colors shadow-sm">Ver atividades</button>}
           />
 
+          <TacticalSourceCard />
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <StatCard title="Projetos" value={tacticalStats.totalProjects} description="Projetos táticos ativos na Etapa 1." icon={Briefcase} tone="brand" />
+            <StatCard title="Projetos" value={tacticalStats.totalProjects} description="Projetos táticos conectados ao fluxo atual." icon={Briefcase} tone="brand" />
             <StatCard title="Atividades" value={tacticalStats.totalTasks} description="Tarefas ligadas aos projetos." icon={CheckCircle} tone="cyan" />
             <StatCard title="Validadas" value={tacticalStats.approved} description="Conclusões confirmadas pelo admin." icon={ShieldCheck} tone="emerald" />
           </div>
+
+          {tacticalProjects.length === 0 && (
+            <EmptyState icon={Briefcase} title="Nenhum projeto tático encontrado" description="Crie projetos no schema calender ou use o fluxo piloto pelo admin para validar a cascata real." />
+          )}
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             {tacticalProjects.map(project => {
@@ -1933,6 +2543,8 @@
 
             {!isAdminUser && <div className="mb-6"><AccessRequiredCard adminOnly /></div>}
 
+            <TacticalSourceCard />
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <StatCard title="Pendentes" value={pendingTasks.length} description="Aguardando decisão do admin." icon={AlertTriangle} tone="amber" />
               <StatCard title="Aprovadas" value={tacticalStats.approved} description="Já liberaram cascata." icon={ShieldCheck} tone="emerald" />
@@ -1958,12 +2570,14 @@
             actions={
               <>
                 <button type="button" onClick={openAdminModal} className="px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-black hover:bg-brand-700 transition-colors shadow-sm">Gestão do calendário</button>
-                <button type="button" onClick={resetTacticalDemo} className="px-4 py-2.5 rounded-xl bg-slate-50 text-slate-600 border border-slate-200 text-sm font-black hover:bg-slate-100 transition-colors">Restaurar fluxo</button>
+                <button type="button" onClick={createTacticalPilotInSupabase} disabled={isSubmitting} className="px-4 py-2.5 rounded-xl bg-slate-50 text-slate-600 border border-slate-200 text-sm font-black hover:bg-slate-100 transition-colors disabled:opacity-60 disabled:cursor-wait">Criar fluxo piloto</button>
               </>
             }
           />
 
           {!isAdminUser && <div className="mb-6"><AccessRequiredCard adminOnly /></div>}
+
+          <TacticalSourceCard />
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
             <StatCard title="Lançamentos" value={regularEvents.length} description="Eventos/informes do calendário." icon={FileText} tone="brand" />
@@ -1977,10 +2591,10 @@
               <h3 className="text-lg font-black text-brand-900 mb-4 flex items-center gap-2"><BarChart3 size={20} className="text-brand-600" /> Estado da implantação</h3>
               <div className="space-y-3">
                 {[
-                  ['Etapa 1', 'Fundação visual e navegação tática', 'Concluída nesta versão'],
-                  ['Etapa 2', 'Tabelas Supabase para projetos, tarefas e aprovações', 'Próxima entrega'],
-                  ['Etapa 3', 'CRUD real de atividades e projetos pelo admin', 'Após validar a navegação'],
-                  ['Etapa 4', 'Cascata real persistida no banco e histórico de aprovações', 'Após aprovar o schema']
+                  ['Etapa 1', 'Fundação visual e navegação tática', 'Concluída'],
+                  ['Etapa 2', 'Schema calender no Supabase', 'Validado e funcional'],
+                  ['Etapa 3', 'Atividades reais com envio, aprovação e cascata', 'Implementada nesta versão'],
+                  ['Etapa 4', 'CRUD administrativo completo de projetos e tarefas', 'Próxima entrega']
                 ].map(([phase, title, status]) => (
                   <div key={phase} className="flex items-start gap-3 bg-slate-50 border border-slate-100 rounded-xl p-4">
                     <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-brand-700 flex items-center justify-center flex-shrink-0 font-black text-xs">{phase.replace('Etapa ', 'E')}</div>
