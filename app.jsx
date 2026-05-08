@@ -367,11 +367,20 @@
 
 
     // --- BOTÃO FLUTUANTE GLOBAL ---
-    const FloatingActionButton = ({ onAdminAccess, isAdmin }) => {
+    const FloatingActionButton = ({
+      onAdminAccess,
+      onNavigate,
+      onLogout,
+      isAdmin,
+      user,
+      profile,
+      currentView,
+      navigationItems = []
+    }) => {
       const [isFabOpen, setIsFabOpen] = useState(false);
       const clickTimerRef = useRef(null);
       const homeUrl = 'https://maishidrosolucoes-cmyk.github.io/redirecionadormais/';
-      const primaryActionLabel = isAdmin ? 'Adicionar evento ou informe' : 'Entrar na conta ADM';
+      const primaryActionLabel = isAdmin ? 'Gestão do calendário' : 'Entrar na conta';
       const PrimaryActionIcon = isAdmin ? PlusCircle : Lock;
 
       const closeFab = () => {
@@ -402,6 +411,16 @@
         window.location.href = homeUrl;
       };
 
+      const handleNavigate = (viewId) => {
+        closeFab();
+        onNavigate(viewId);
+      };
+
+      const handleLogoutAction = () => {
+        closeFab();
+        onLogout();
+      };
+
       useEffect(() => {
         const handleOutsideClick = (e) => {
           const fabRoot = document.getElementById('floating-action-button-root');
@@ -421,25 +440,102 @@
       }, [isFabOpen]);
 
       return (
-        <div id="floating-action-button-root" className="fixed bottom-6 right-6 z-[45] flex flex-col items-end font-sans">
-          <div className={`flex flex-col gap-3 mb-4 items-end transition-all duration-300 transform ${isFabOpen ? 'translate-y-0 opacity-100 pointer-events-auto' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
-            <button type="button" onClick={handleAdminAccess} className="flex items-center gap-3 hover:scale-105 transition-transform group">
-              <span className="bg-white text-slate-700 border border-slate-100 text-xs md:text-sm font-semibold px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap group-hover:text-brand-700">
-                {primaryActionLabel}
-              </span>
-              <div className="w-12 h-12 rounded-full bg-white text-brand-600 shadow-md flex items-center justify-center border border-slate-100 group-hover:bg-brand-50 transition-colors">
-                <PrimaryActionIcon size={20} />
-              </div>
-            </button>
+        <div id="floating-action-button-root" className="fixed bottom-5 right-4 md:bottom-6 md:right-6 z-[45] flex flex-col items-end font-sans">
+          <div className={`mb-4 transition-all duration-300 transform origin-bottom-right ${isFabOpen ? 'translate-y-0 scale-100 opacity-100 pointer-events-auto' : 'translate-y-6 scale-95 opacity-0 pointer-events-none'}`}>
 
-            <button type="button" onClick={handleGoHome} className="flex items-center gap-3 hover:scale-105 transition-transform group">
-              <span className="bg-slate-800 text-white text-xs md:text-sm font-semibold px-3 py-1.5 rounded-lg shadow-md whitespace-nowrap">
-                Voltar para página inicial
-              </span>
-              <div className="w-12 h-12 rounded-full bg-slate-800 text-white shadow-md flex items-center justify-center group-hover:bg-brand-700 transition-colors">
-                <Home size={20} />
+            {/* Menu mobile: todas as páginas e ações ficam concentradas aqui */}
+            <div className="md:hidden w-[min(88vw,22rem)] rounded-3xl bg-white/95 backdrop-blur border border-slate-200 shadow-2xl shadow-slate-900/15 overflow-hidden">
+              <div className="px-4 py-4 bg-gradient-to-br from-brand-900 to-brand-700 text-white">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-brand-100">Menu tático</p>
+                    <h3 className="text-base font-black mt-1">Agenda Corporativa</h3>
+                  </div>
+                  <div className="w-11 h-11 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center">
+                    <Layers size={22} />
+                  </div>
+                </div>
+                <p className="mt-3 text-xs font-medium text-brand-100 leading-relaxed">
+                  {user ? (profile?.full_name || user.email) : 'Acesso público'}
+                </p>
               </div>
-            </button>
+
+              <div className="p-3 max-h-[68vh] overflow-y-auto hide-scrollbar">
+                <p className="px-2 mb-2 text-[10px] font-black uppercase tracking-wider text-slate-400">Navegação</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {navigationItems.map((item, index) => {
+                    const Icon = item.icon;
+                    const active = currentView === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => handleNavigate(item.id)}
+                        className={`min-h-[4.6rem] rounded-2xl border p-3 text-left transition-all duration-300 ${active ? 'bg-brand-600 text-white border-brand-600 shadow-lg shadow-brand-600/20' : 'bg-slate-50 text-slate-600 border-slate-100 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-100'}`}
+                        style={{ transitionDelay: `${index * 20}ms` }}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <Icon size={20} />
+                          {active && <span className="w-2 h-2 rounded-full bg-white"></span>}
+                        </div>
+                        <span className="block mt-2 text-[10px] font-black uppercase tracking-wider leading-tight">{item.shortLabel}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+                  {isAdmin && (
+                    <button type="button" onClick={handleAdminAccess} className="w-full flex items-center gap-3 p-3 rounded-2xl bg-brand-50 text-brand-700 border border-brand-100 font-black text-xs uppercase tracking-wider">
+                      <div className="w-10 h-10 rounded-xl bg-white border border-brand-100 flex items-center justify-center"><PlusCircle size={18} /></div>
+                      <span className="flex-1 text-left">Gestão do calendário</span>
+                      <ChevronRight size={16} />
+                    </button>
+                  )}
+
+                  {user ? (
+                    <button type="button" onClick={handleLogoutAction} className="w-full flex items-center gap-3 p-3 rounded-2xl bg-amber-50 text-amber-700 border border-amber-100 font-black text-xs uppercase tracking-wider">
+                      <div className="w-10 h-10 rounded-xl bg-white border border-amber-100 flex items-center justify-center"><LogOut size={18} /></div>
+                      <span className="flex-1 text-left">Sair da conta</span>
+                      <ChevronRight size={16} />
+                    </button>
+                  ) : (
+                    <button type="button" onClick={handleAdminAccess} className="w-full flex items-center gap-3 p-3 rounded-2xl bg-slate-50 text-slate-700 border border-slate-100 font-black text-xs uppercase tracking-wider">
+                      <div className="w-10 h-10 rounded-xl bg-white border border-slate-100 flex items-center justify-center"><Lock size={18} /></div>
+                      <span className="flex-1 text-left">Entrar na conta</span>
+                      <ChevronRight size={16} />
+                    </button>
+                  )}
+
+                  <button type="button" onClick={handleGoHome} className="w-full flex items-center gap-3 p-3 rounded-2xl bg-slate-900 text-white border border-slate-900 font-black text-xs uppercase tracking-wider">
+                    <div className="w-10 h-10 rounded-xl bg-white/10 border border-white/10 flex items-center justify-center"><Home size={18} /></div>
+                    <span className="flex-1 text-left">Página inicial externa</span>
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Menu desktop preservado como atalho flutuante discreto */}
+            <div className="hidden md:flex flex-col gap-3 items-end">
+              <button type="button" onClick={handleAdminAccess} className="flex items-center gap-3 hover:scale-105 transition-transform group">
+                <span className="bg-white text-slate-700 border border-slate-100 text-sm font-semibold px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap group-hover:text-brand-700">
+                  {primaryActionLabel}
+                </span>
+                <div className="w-12 h-12 rounded-full bg-white text-brand-600 shadow-md flex items-center justify-center border border-slate-100 group-hover:bg-brand-50 transition-colors">
+                  <PrimaryActionIcon size={20} />
+                </div>
+              </button>
+
+              <button type="button" onClick={handleGoHome} className="flex items-center gap-3 hover:scale-105 transition-transform group">
+                <span className="bg-slate-800 text-white text-sm font-semibold px-3 py-1.5 rounded-lg shadow-md whitespace-nowrap">
+                  Voltar para página inicial
+                </span>
+                <div className="w-12 h-12 rounded-full bg-slate-800 text-white shadow-md flex items-center justify-center group-hover:bg-brand-700 transition-colors">
+                  <Home size={20} />
+                </div>
+              </button>
+            </div>
           </div>
 
           <button
@@ -447,15 +543,127 @@
             onClick={handleFabClick}
             className={`w-14 h-14 md:w-16 md:h-16 rounded-full shadow-xl transition-all duration-300 flex items-center justify-center border outline-none hover:scale-105 active:scale-95 ${
               isFabOpen
-                ? 'bg-brand-600 text-white border-brand-600 opacity-100'
-                : 'bg-white text-brand-600 border-slate-200 opacity-60 hover:opacity-100 focus:opacity-100'
+                ? 'bg-brand-600 text-white border-brand-600 opacity-100 rotate-0'
+                : 'bg-white text-brand-600 border-slate-200 opacity-90 hover:opacity-100 focus:opacity-100'
             }`}
             title="1 clique para abrir o menu | 2 cliques para voltar ao início"
+            aria-label={isFabOpen ? 'Fechar menu tático' : 'Abrir menu tático'}
+            aria-expanded={isFabOpen}
           >
             <div className={`transition-transform duration-300 ${isFabOpen ? 'rotate-90' : 'rotate-0'}`}>
-              {isFabOpen ? <X size={28} /> : <PlusCircle size={30} />}
+              {isFabOpen ? <X size={28} /> : <Layers size={30} />}
             </div>
           </button>
+        </div>
+      );
+    };
+
+    const HeaderPortalMenu = ({
+      navigationItems = [],
+      currentView,
+      onNavigate,
+      onAdminAccess,
+      isAdmin
+    }) => {
+      const [isOpen, setIsOpen] = useState(false);
+      const menuRef = useRef(null);
+
+      const closeMenu = () => setIsOpen(false);
+
+      const handleNavigate = (viewId) => {
+        closeMenu();
+        onNavigate(viewId);
+      };
+
+      const handleAdmin = () => {
+        closeMenu();
+        onAdminAccess();
+      };
+
+      useEffect(() => {
+        const handleOutsideClick = (event) => {
+          if (isOpen && menuRef.current && !menuRef.current.contains(event.target)) {
+            closeMenu();
+          }
+        };
+
+        document.addEventListener('click', handleOutsideClick);
+        return () => document.removeEventListener('click', handleOutsideClick);
+      }, [isOpen]);
+
+      return (
+        <div ref={menuRef} className="relative hidden md:block">
+          <button
+            type="button"
+            onClick={() => setIsOpen(prev => !prev)}
+            className={`group flex items-center gap-3 rounded-2xl border px-4 py-2.5 shadow-sm transition-all ${isOpen ? 'bg-brand-600 text-white border-brand-600 shadow-brand-600/20' : 'bg-white text-slate-700 border-slate-200 hover:border-brand-200 hover:bg-brand-50 hover:text-brand-700'}`}
+            aria-expanded={isOpen}
+            aria-haspopup="menu"
+          >
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${isOpen ? 'bg-white/15 text-white' : 'bg-brand-50 text-brand-600 group-hover:bg-white'}`}>
+              {isOpen ? <X size={18} /> : <Layers size={18} />}
+            </div>
+            <div className="text-left leading-tight">
+              <span className="block text-xs font-black uppercase tracking-wider">Menu do Portal</span>
+              <span className={`block text-[10px] font-bold ${isOpen ? 'text-brand-100' : 'text-slate-400'}`}>Agenda · Tarefas · Projetos</span>
+            </div>
+          </button>
+
+          <div className={`absolute top-[calc(100%+0.75rem)] left-1/2 -translate-x-1/2 w-[26rem] max-w-[calc(100vw-3rem)] rounded-3xl bg-white border border-slate-200 shadow-2xl shadow-slate-900/15 overflow-hidden transition-all duration-300 origin-top ${isOpen ? 'opacity-100 scale-100 translate-y-0 pointer-events-auto' : 'opacity-0 scale-95 -translate-y-2 pointer-events-none'}`}>
+            <div className="p-4 bg-gradient-to-br from-slate-900 via-brand-900 to-brand-700 text-white">
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-brand-100">Navegação tática</p>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <h3 className="font-black text-lg">Escolha uma área</h3>
+                <span className="px-2.5 py-1 rounded-full bg-white/10 border border-white/15 text-[10px] font-black uppercase tracking-wider">
+                  {isAdmin ? 'Admin' : 'Portal'}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 grid grid-cols-1 gap-2">
+              {navigationItems.map((item, index) => {
+                const Icon = item.icon;
+                const active = currentView === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleNavigate(item.id)}
+                    className={`group flex items-center gap-3 rounded-2xl border p-3 text-left transition-all duration-300 ${active ? 'bg-brand-600 text-white border-brand-600 shadow-lg shadow-brand-600/20' : 'bg-white text-slate-600 border-slate-100 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-100'}`}
+                    style={{ transitionDelay: isOpen ? `${index * 35}ms` : '0ms' }}
+                    role="menuitem"
+                  >
+                    <div className={`w-11 h-11 rounded-2xl flex items-center justify-center border transition-colors ${active ? 'bg-white/15 border-white/15 text-white' : 'bg-slate-50 border-slate-100 text-brand-600 group-hover:bg-white'}`}>
+                      <Icon size={19} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="block text-sm font-black truncate">{item.label}</span>
+                      <span className={`block text-[11px] font-semibold truncate ${active ? 'text-brand-100' : 'text-slate-400'}`}>{item.description}</span>
+                    </div>
+                    <ChevronRight size={17} className={`transition-transform ${active ? 'text-white' : 'text-slate-300 group-hover:text-brand-500 group-hover:translate-x-0.5'}`} />
+                  </button>
+                );
+              })}
+
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={handleAdmin}
+                  className="mt-1 group flex items-center gap-3 rounded-2xl border p-3 text-left bg-slate-900 text-white border-slate-900 hover:bg-brand-700 hover:border-brand-700 transition-all"
+                  role="menuitem"
+                >
+                  <div className="w-11 h-11 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center">
+                    <PlusCircle size={19} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className="block text-sm font-black truncate">Gestão do calendário atual</span>
+                    <span className="block text-[11px] font-semibold text-white/60 truncate">Criar eventos, informes e alterações</span>
+                  </div>
+                  <ChevronRight size={17} className="transition-transform group-hover:translate-x-0.5" />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       );
     };
@@ -2059,12 +2267,12 @@
       return (
         <div className="min-h-screen bg-[#F8FAFC] flex flex-col text-slate-800 font-sans selection:bg-brand-100 w-full page-enter">
           
-          <header className="bg-white border-b border-slate-200 px-4 md:px-8 py-3 sticky top-0 z-40 shadow-sm w-full">
-            <div className="w-full flex items-center justify-between gap-4">
+          <header className="bg-white/95 backdrop-blur border-b border-slate-200 px-4 md:px-8 py-3 sticky top-0 z-40 shadow-sm w-full">
+            <div className="w-full max-w-screen-2xl mx-auto flex items-center justify-between gap-4">
 
               <div className="flex items-center gap-3 md:gap-5 min-w-0">
-                <button type="button" onClick={() => setCurrentView('dashboard')} className="flex items-center gap-3 md:gap-5 min-w-0 text-left">
-                  <img src={LOGO_URL} alt="Logo Empresa" className="h-10 md:h-14 object-contain flex-shrink-0" />
+                <button type="button" onClick={() => setCurrentView('dashboard')} className="flex items-center gap-3 md:gap-5 min-w-0 text-left group">
+                  <img src={LOGO_URL} alt="Logo Empresa" className="h-10 md:h-14 object-contain flex-shrink-0 transition-transform group-hover:scale-[1.02]" />
                   <div className="hidden sm:block pl-3 md:pl-5 border-l border-slate-200 min-w-0">
                     <h1 className="text-sm md:text-base font-bold tracking-tight text-brand-900 leading-tight">Agenda Tática<br/>Corporativa</h1>
                     <p className="hidden lg:block text-[10px] font-black text-slate-400 uppercase tracking-wider mt-1">Semana · Atividades · Projetos</p>
@@ -2072,30 +2280,42 @@
                 </button>
               </div>
 
-              <nav className="hidden xl:flex items-center gap-2 flex-1 justify-center max-w-4xl">
-                {visibleNavigationItems.map(item => <NavigationButton key={item.id} item={item} />)}
-              </nav>
+              <HeaderPortalMenu
+                navigationItems={visibleNavigationItems}
+                currentView={currentView}
+                onNavigate={setCurrentView}
+                onAdminAccess={() => {
+                  if (user && profile?.is_admin) {
+                    setIsAdminModalOpen(true);
+                  } else {
+                    setCurrentView('login');
+                  }
+                }}
+                isAdmin={isAdminUser}
+              />
 
-              <div className="flex items-center gap-2">
-                <div className="hidden md:flex flex-col text-right">
+              <div className="hidden md:flex items-center gap-2">
+                <div className="flex flex-col text-right">
                   <span className="text-xs font-black text-brand-900">{user ? (profile?.full_name || user.email) : 'Acesso público'}</span>
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{isAdminUser ? 'Administrador' : user ? 'Usuário' : 'Visitante'}</span>
                 </div>
                 {user ? (
-                  <button onClick={handleLogout} className="p-1.5 md:p-2.5 rounded-lg border transition-colors bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 flex items-center gap-2" title="Sair da Conta">
-                    <LogOut size={18} /> <span className="hidden md:inline text-sm font-bold">Sair</span>
+                  <button onClick={handleLogout} className="p-2.5 rounded-xl border transition-colors bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100 flex items-center gap-2" title="Sair da Conta">
+                    <LogOut size={18} /> <span className="hidden lg:inline text-sm font-bold">Sair</span>
                   </button>
                 ) : (
-                  <button onClick={() => setCurrentView('login')} className="p-1.5 md:px-3 md:py-2.5 rounded-lg border transition-colors bg-brand-50 text-brand-700 border-brand-100 hover:bg-brand-100 flex items-center gap-2" title="Entrar">
-                    <Lock size={18} /> <span className="hidden md:inline text-sm font-bold">Entrar</span>
+                  <button onClick={() => setCurrentView('login')} className="px-3 py-2.5 rounded-xl border transition-colors bg-brand-50 text-brand-700 border-brand-100 hover:bg-brand-100 flex items-center gap-2" title="Entrar">
+                    <Lock size={18} /> <span className="text-sm font-bold">Entrar</span>
                   </button>
                 )}
               </div>
-            </div>
 
-            <nav className="hidden md:flex xl:hidden mt-3 gap-2 overflow-x-auto hide-scrollbar pb-1">
-              {visibleNavigationItems.map(item => <NavigationButton key={item.id} item={item} />)}
-            </nav>
+              <div className="md:hidden flex items-center gap-2">
+                <span className="px-2.5 py-1 rounded-full bg-brand-50 text-brand-700 border border-brand-100 text-[10px] font-black uppercase tracking-wider">
+                  {currentView === 'dashboard' ? 'Início' : (APP_VIEWS.find(item => item.id === currentView)?.shortLabel || 'Portal')}
+                </span>
+              </div>
+            </div>
           </header>
 
           <main className="flex-1 overflow-x-hidden p-4 md:p-8 pb-28 md:pb-safe flex flex-col gap-8 w-full">
@@ -2274,6 +2494,12 @@
 
           <FloatingActionButton
             isAdmin={!!(user && profile?.is_admin)}
+            user={user}
+            profile={profile}
+            currentView={currentView}
+            navigationItems={visibleNavigationItems}
+            onNavigate={setCurrentView}
+            onLogout={handleLogout}
             onAdminAccess={() => {
               if (user && profile?.is_admin) {
                 setIsAdminModalOpen(true);
@@ -2282,12 +2508,6 @@
               }
             }}
           />
-
-          <nav className="fixed bottom-0 left-0 right-0 z-40 md:hidden bg-white/95 backdrop-blur border-t border-slate-200 px-2 pt-2 pb-safe shadow-[0_-10px_30px_rgba(15,23,42,0.08)]">
-            <div className="flex items-center gap-1">
-              {visibleNavigationItems.slice(0, isAdminUser ? 5 : 4).map(item => <NavigationButton key={item.id} item={item} compact />)}
-            </div>
-          </nav>
 
           {/* ================= MODAIS UI (Paineis secundários) ================= */}
 
