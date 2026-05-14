@@ -17,13 +17,6 @@ const OBRAS_2025_AUTORIZADAS = new Set([
 ]);
 
 
-// Pedidos app confirmados como duplicidade operacional da obra 26.046.
-// Esses pedidos não devem participar da consolidação nem aparecer no frontend.
-const PEDIDOS_APP_DUPLICADOS_BLOQUEADOS_POR_OBRA = Object.freeze({
-  "26046": new Set(["100218", "100243"])
-});
-
-
 const FATURAMENTO_FINANCEIRO_2026 = Object.freeze({
   "721": { data: "08/01/2026", valor: 830929, cliente: "AQUALCULTURA FORTALE" },
   "722": { data: "12/01/2026", valor: 10000, cliente: "TAS BOMBAS" },
@@ -196,7 +189,7 @@ function getChaveValorPedidoConfiavel(item, obraKey) {
 
   const valorTotalPedido = getValorTotalPedidoERP(erp);
   if (valorTotalPedido !== null && valorTotalPedido > 0) {
-    const pedidoKey = getNumeroPedidoKeyERP(item) || `SEM_PEDIDO_${item && item.sourceIndex !== undefined ? item.sourceIndex : 'X'}`;
+    const pedidoKey = getNumeroPedidoKeyERP(erp) || `SEM_PEDIDO_${item && item.sourceIndex !== undefined ? item.sourceIndex : 'X'}`;
     const obraKeySafe = String(obraKey || '').trim() || 'SEM_OBRA';
     return `PEDIDO_TOTAL:${obraKeySafe}:${pedidoKey}`;
   }
@@ -656,18 +649,9 @@ function getNumeroPedidoKeyERP(erp) {
   return normalizeDigits(getNumeroPedidoERP(erp));
 }
 
-function isPedidoBloqueadoPorDuplicidadeConfirmada(erp, obraKey) {
-  const keyObra = normalizeDigits(obraKey);
-  const pedidosBloqueados = PEDIDOS_APP_DUPLICADOS_BLOQUEADOS_POR_OBRA[keyObra];
-  if (!pedidosBloqueados) return false;
 
-  const pedidoKey = getNumeroPedidoKeyERP(erp);
-  return Boolean(pedidoKey && pedidosBloqueados.has(pedidoKey));
-}
 
-function itemBloqueadoPorDuplicidadeConfirmada(item, obraKey) {
-  return isPedidoBloqueadoPorDuplicidadeConfirmada(item && item.erp, obraKey);
-}
+
 
 
 
@@ -707,13 +691,6 @@ function resolverDuplicidadeGrupoObra(itens, obraKey) {
   let lista = Array.isArray(itens) ? itens.slice() : [];
   if (!lista.length) return [];
 
-  // Barreira cirúrgica para duplicidades operacionais já confirmadas:
-  // pedidos app bloqueados não entram em nenhuma etapa da consolidação.
-  if (obraKey) {
-    lista = lista.filter(item => !itemBloqueadoPorDuplicidadeConfirmada(item, obraKey));
-    if (!lista.length) return [];
-  }
-
   const possuiDuplicidadeDePedidos = grupoPossuiPedidosDuplicados(lista);
   if (!possuiDuplicidadeDePedidos) {
     return filtrarPorStatusPedidoPreferencial(lista);
@@ -721,7 +698,7 @@ function resolverDuplicidadeGrupoObra(itens, obraKey) {
 
   let candidatos = lista.slice();
 
-  // Regra central: em duplicidade, pedido cancelado só representa a obra
+  // Regra central e global: em duplicidade, pedido cancelado só representa a obra
   // quando todos os pedidos da mesma obra estão cancelados.
   const candidatosNaoCancelados = candidatos.filter(item => !isLinhaCanceladaOuFrustrada(item && item.erp));
   if (candidatosNaoCancelados.length) {
