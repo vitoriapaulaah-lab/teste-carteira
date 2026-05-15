@@ -1,0 +1,380 @@
+// ==========================================
+// motorcompras.js
+// MOTOR ISOLADO DE ORDENS DE COMPRA + CPMV PLANEJADO
+// Fonte: Google Sheets via Apps Script
+// Não interfere no motor principal do ERP.
+// ==========================================
+
+(function () {
+  const API_URL = "https://script.google.com/macros/s/AKfycbzCwyJ_EfwrlD3gs_5GEmgtzonWlv5dtPEnA5asnUkrcz6LM9rKD5rg1UH4nOo7ss1E/exec";
+  const API_LIMIT = 5000;
+
+  let cacheComprasPromise = null;
+  let cacheCpmvPromise = null;
+  let cacheCompras = null;
+  let cacheCpmv = null;
+  let cachePorObra = null;
+  let cacheCpmvPorObra = null;
+
+  function normalizeText(value) {
+    return String(value ?? "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim();
+  }
+
+  function normalizeUpper(value) {
+    return normalizeText(value).toUpperCase();
+  }
+
+  function normalizarObraKey(value) {
+    const txt = normalizeUpper(value);
+    if (!txt) return "";
+
+    const match = txt.match(/(?:OBRA\s*)?(25|26)[\s.,\-]*(\d{3})/);
+    if (match) return `${match[1]}${match[2]}`;
+
+    const compact = txt.replace(/\D/g, "");
+    if (/^(25|26)\d{3}$/.test(compact)) return compact;
+
+    return "";
+  }
+
+  function formatObraCodigo(key) {
+    const obraKey = String(key || "").trim();
+    return obraKey.length === 5 ? `${obraKey.slice(0, 2)}.${obraKey.slice(2)}` : obraKey;
+  }
+
+  function getObraKeyCompra(compra) {
+    return normalizarObraKey(compra && compra.ped_cliente) ||
+      normalizarObraKey(compra && compra.observacoes) ||
+      normalizarObraKey(compra && compra.observacao);
+  }
+
+  function parseMoney(value) {
+    if (value === null || value === undefined || value === "") return 0;
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+
+    let str = String(value).trim();
+    if (!str) return 0;
+
+    str = str.replace(/\s/g, "").replace(/[R$r$\u00A0]/g, "");
+
+    if (str.includes(",")) {
+      str = str.replace(/\./g, "").replace(",", ".");
+    } else {
+      const dotCount = (str.match(/\./g) || []).length;
+      if (dotCount > 1) str = str.replace(/\./g, "");
+    }
+
+    str = str.replace(/[^\d.-]/g, "");
+    const parsed = parseFloat(str);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function parseDateValue(value) {
+    if (!value) return null;
+    if (value instanceof Date) return new Date(value.getTime());
+
+    const txt = String(value).trim();
+    if (!txt) return null;
+
+    let m = txt.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+
+    m = txt.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]), 12, 0, 0);
+
+    const dt = new Date(txt);
+    if (!Number.isNaN(dt.getTime())) return dt;
+
+    return null;
+  }
+
+  function formatDateISO(value) {
+    const dt = parseDateValue(value);
+    if (!dt) return "";
+    const yyyy = String(dt.getFullYear());
+    const mm = String(dt.getMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function isCancelada(row, valor) {
+    const obs = normalizeUpper(row && (row.observacoes || row.observacao));
+    return obs.includes("CANCELAD") || parseMoney(valor) <= 0;
+  }
+
+  function sanitizeCompraRow(row) {
+    const valor = parseMoney(row && row.valor);
+    const totalBruto = parseMoney(row && row.total_bruto);
+    const totalIpi = parseMoney(row && row.total_ipi);
+    const obraKey = getObraKeyCompra(row);
+
+    return {
+      cadastramento: formatDateISO(row && (row.cadastramento || row.cadastro)),
+      pednum: String((row && row.pednum) ?? "").trim(),
+      fornecedor: String((row && row.fornecedor) ?? "").trim(),
+      ped_cliente: String((row && row.ped_cliente) ?? "").trim(),
+      valor,
+      observacoes: String((row && (row.observacoes || row.observacao)) ?? "").trim(),
+      data_entrega: formatDateISO(row && row.data_entrega),
+      total_bruto: totalBruto,
+      total_ipi: totalIpi,
+      nf: String((row && row.nf) ?? "").trim(),
+      obra_key: obraKey,
+      obra_codigo: formatObraCodigo(obraKey),
+      cancelada: isCancelada(row, valor)
+    };
+  }
+
+  function sanitizeCpmvRow(row) {
+    const obraKey = normalizarObraKey(row && row.obra);
+    return {
+      obra: String((row && row.obra) ?? "").trim(),
+      obra_key: obraKey,
+      obra_codigo: formatObraCodigo(obraKey),
+      cpmv_planejado: parseMoney(row && (row.cpmv_planejado || row.cpmv || row.valor)),
+      observacao: String((row && (row.observacao || row.observacoes)) ?? "").trim()
+    };
+  }
+
+  function buildUrl(sheetName) {
+    const sep = API_URL.includes("?") ? "&" : "?";
+    return `${API_URL}${sep}sheet=${encodeURIComponent(sheetName)}&limit=${API_LIMIT}`;
+  }
+
+  function fetchJson(url) {
+    return fetch(url, { method: "GET", cache: "no-store" })
+      .then(resp => {
+        if (!resp.ok) throw new Error(`Falha ao buscar compras: HTTP ${resp.status}`);
+        return resp.json();
+      });
+  }
+
+  function fetchJsonp(url) {
+    return new Promise((resolve, reject) => {
+      const callbackName = `__motorComprasJsonp_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
+      const sep = url.includes("?") ? "&" : "?";
+      const script = document.createElement("script");
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error("Tempo excedido ao buscar compras."));
+      }, 20000);
+
+      function cleanup() {
+        clearTimeout(timer);
+        try { delete window[callbackName]; } catch (_) { window[callbackName] = undefined; }
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      window[callbackName] = payload => {
+        cleanup();
+        resolve(payload);
+      };
+
+      script.onerror = () => {
+        cleanup();
+        reject(new Error("Falha ao carregar API de compras."));
+      };
+
+      script.src = `${url}${sep}callback=${encodeURIComponent(callbackName)}`;
+      document.head.appendChild(script);
+    });
+  }
+
+  async function fetchApiSheet(sheetName) {
+    const url = buildUrl(sheetName);
+    const payload = await fetchJson(url).catch(() => fetchJsonp(url));
+
+    if (!payload || payload.ok === false) {
+      throw new Error((payload && payload.error) || `API de ${sheetName} retornou erro.`);
+    }
+
+    return Array.isArray(payload.data) ? payload.data : [];
+  }
+
+  async function fetchCompras() {
+    if (cacheCompras) return cacheCompras.slice();
+    if (cacheComprasPromise) return cacheComprasPromise;
+
+    cacheComprasPromise = fetchApiSheet("oc")
+      .then(data => {
+        cacheCompras = data.map(sanitizeCompraRow).filter(row => row.pednum || row.obra_key || row.fornecedor);
+        cachePorObra = agruparPorObra(cacheCompras);
+        return cacheCompras.slice();
+      })
+      .finally(() => {
+        cacheComprasPromise = null;
+      });
+
+    return cacheComprasPromise;
+  }
+
+  async function fetchCpmvPlanejado() {
+    if (cacheCpmv) return cacheCpmv.slice();
+    if (cacheCpmvPromise) return cacheCpmvPromise;
+
+    cacheCpmvPromise = fetchApiSheet("cpmv")
+      .then(data => {
+        cacheCpmv = data.map(sanitizeCpmvRow).filter(row => row.obra_key && row.cpmv_planejado > 0);
+        cacheCpmvPorObra = agruparCpmvPorObra(cacheCpmv);
+        return cacheCpmv.slice();
+      })
+      .catch(() => {
+        cacheCpmv = [];
+        cacheCpmvPorObra = {};
+        return [];
+      })
+      .finally(() => {
+        cacheCpmvPromise = null;
+      });
+
+    return cacheCpmvPromise;
+  }
+
+  function agruparCpmvPorObra(cpmvRows) {
+    const result = {};
+
+    cpmvRows.forEach(row => {
+      if (!row.obra_key) return;
+
+      // Se houver mais de uma linha para a mesma obra, a última preenchida prevalece.
+      result[row.obra_key] = {
+        obra_key: row.obra_key,
+        obra_codigo: row.obra_codigo,
+        cpmvPlanejado: row.cpmv_planejado,
+        observacao: row.observacao || ""
+      };
+    });
+
+    return result;
+  }
+
+  function agruparPorObra(compras) {
+    const grupos = new Map();
+
+    compras.forEach(compra => {
+      if (!compra.obra_key) return;
+
+      if (!grupos.has(compra.obra_key)) {
+        grupos.set(compra.obra_key, {
+          obra_key: compra.obra_key,
+          obra_codigo: compra.obra_codigo,
+          compras: [],
+          valorTotal: 0,
+          totalBruto: 0,
+          totalIpi: 0,
+          fornecedores: new Set(),
+          notasFiscais: new Set(),
+          pedidosOc: new Set(),
+          ultimaEntrega: "",
+          primeiraCompra: "",
+          ultimaCompra: ""
+        });
+      }
+
+      const grupo = grupos.get(compra.obra_key);
+      grupo.compras.push(compra);
+
+      if (!compra.cancelada) {
+        grupo.valorTotal += parseMoney(compra.valor);
+        grupo.totalBruto += parseMoney(compra.total_bruto);
+        grupo.totalIpi += parseMoney(compra.total_ipi);
+        if (compra.fornecedor) grupo.fornecedores.add(compra.fornecedor);
+        if (compra.nf) grupo.notasFiscais.add(compra.nf);
+        if (compra.pednum) grupo.pedidosOc.add(compra.pednum);
+      }
+
+      if (compra.data_entrega && (!grupo.ultimaEntrega || compra.data_entrega > grupo.ultimaEntrega)) {
+        grupo.ultimaEntrega = compra.data_entrega;
+      }
+
+      if (compra.cadastramento) {
+        if (!grupo.primeiraCompra || compra.cadastramento < grupo.primeiraCompra) grupo.primeiraCompra = compra.cadastramento;
+        if (!grupo.ultimaCompra || compra.cadastramento > grupo.ultimaCompra) grupo.ultimaCompra = compra.cadastramento;
+      }
+    });
+
+    const result = {};
+    grupos.forEach((grupo, key) => {
+      grupo.compras.sort((a, b) => {
+        const da = a.cadastramento || "";
+        const db = b.cadastramento || "";
+        if (da !== db) return da.localeCompare(db);
+        return String(a.pednum || "").localeCompare(String(b.pednum || ""), undefined, { numeric: true });
+      });
+
+      result[key] = {
+        obra_key: grupo.obra_key,
+        obra_codigo: grupo.obra_codigo,
+        compras: grupo.compras,
+        valorTotal: grupo.valorTotal,
+        totalBruto: grupo.totalBruto,
+        totalIpi: grupo.totalIpi,
+        fornecedores: Array.from(grupo.fornecedores),
+        notasFiscais: Array.from(grupo.notasFiscais),
+        pedidosOc: Array.from(grupo.pedidosOc),
+        ultimaEntrega: grupo.ultimaEntrega,
+        primeiraCompra: grupo.primeiraCompra,
+        ultimaCompra: grupo.ultimaCompra,
+        qtdValidas: grupo.compras.filter(compra => !compra.cancelada).length,
+        qtdCanceladas: grupo.compras.filter(compra => compra.cancelada).length
+      };
+    });
+
+    return result;
+  }
+
+  async function getResumoObra(obraOuKey) {
+    await Promise.all([fetchCompras(), fetchCpmvPlanejado()]);
+
+    const key = normalizarObraKey(obraOuKey) || String(obraOuKey || "").replace(/\D/g, "");
+    const base = key && cachePorObra && cachePorObra[key] ? cachePorObra[key] : {
+      obra_key: key,
+      obra_codigo: formatObraCodigo(key),
+      compras: [],
+      valorTotal: 0,
+      totalBruto: 0,
+      totalIpi: 0,
+      fornecedores: [],
+      notasFiscais: [],
+      pedidosOc: [],
+      ultimaEntrega: "",
+      primeiraCompra: "",
+      ultimaCompra: "",
+      qtdValidas: 0,
+      qtdCanceladas: 0
+    };
+
+    const cpmv = key && cacheCpmvPorObra ? cacheCpmvPorObra[key] : null;
+
+    return {
+      ...base,
+      compras: Array.isArray(base.compras) ? base.compras.slice() : [],
+      fornecedores: Array.isArray(base.fornecedores) ? base.fornecedores.slice() : [],
+      notasFiscais: Array.isArray(base.notasFiscais) ? base.notasFiscais.slice() : [],
+      pedidosOc: Array.isArray(base.pedidosOc) ? base.pedidosOc.slice() : [],
+      cpmvPlanejado: cpmv ? cpmv.cpmvPlanejado : 0,
+      cpmvObservacao: cpmv ? cpmv.observacao : "",
+      cpmvInformado: Boolean(cpmv && cpmv.cpmvPlanejado > 0)
+    };
+  }
+
+  function limparCache() {
+    cacheComprasPromise = null;
+    cacheCpmvPromise = null;
+    cacheCompras = null;
+    cacheCpmv = null;
+    cachePorObra = null;
+    cacheCpmvPorObra = null;
+  }
+
+  window.motorCompras = {
+    fetchCompras,
+    fetchCpmvPlanejado,
+    getResumoObra,
+    normalizarObraKey,
+    limparCache
+  };
+})();
